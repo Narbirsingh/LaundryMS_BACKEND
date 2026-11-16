@@ -53,33 +53,58 @@ import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.ent
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 5432),
-        username: configService.get('DB_USERNAME', 'postgres'),
-        password: configService.get('DB_PASSWORD', 'password'),
-        database: configService.get('DB_NAME', 'laundry_ms'),
-        entities: [
-          Organization, Branch, User, Customer,
-          Service, ServicePriceList,
-          Order, OrderItem, OrderStatusHistory,
-          Garment, ProcessingBatch, QualityInspection,
-          Invoice, Payment, JournalEntry,
-          Vendor, InventoryItem, InventoryTransaction, PurchaseOrder,
-          Employee, Expense,
-          CaClient, ItrRecord, ClientDocument, ReconciliationRecord,
-          MembershipPlan, MembershipSubscription, LoyaltyAccount, LoyaltyTransaction,
-          Coupon, CouponUsage,
-          NotificationTemplate, NotificationLog,
-          AttendanceRecord, Shift, LeaveRequest,
-        ],
-        synchronize: configService.get('DB_SYNCHRONIZE', 'true') === 'true' && configService.get('NODE_ENV') !== 'production',
-        logging: configService.get('NODE_ENV') === 'development',
-        ssl: configService.get('DB_SSL') === 'true'
-          ? { rejectUnauthorized: false }
-          : false,
-      }),
+      useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
+        const databaseUrl = configService.get('DATABASE_URL');
+
+        const base = {
+          type: 'postgres' as const,
+          entities: [
+            Organization, Branch, User, Customer,
+            Service, ServicePriceList,
+            Order, OrderItem, OrderStatusHistory,
+            Garment, ProcessingBatch, QualityInspection,
+            Invoice, Payment, JournalEntry,
+            Vendor, InventoryItem, InventoryTransaction, PurchaseOrder,
+            Employee, Expense,
+            CaClient, ItrRecord, ClientDocument, ReconciliationRecord,
+            MembershipPlan, MembershipSubscription, LoyaltyAccount, LoyaltyTransaction,
+            Coupon, CouponUsage,
+            NotificationTemplate, NotificationLog,
+            AttendanceRecord, Shift, LeaveRequest,
+          ],
+          synchronize: !isProduction,
+          logging: !isProduction,
+          retryAttempts: 3,
+          retryDelay: 3000,
+          // Serverless-safe pool: keep connections minimal
+          extra: {
+            max: isProduction ? 2 : 10,
+            connectionTimeoutMillis: 10000,
+            idleTimeoutMillis: 30000,
+          },
+        };
+
+        if (databaseUrl) {
+          return {
+            ...base,
+            url: databaseUrl,
+            ssl: { rejectUnauthorized: false },
+          };
+        }
+
+        return {
+          ...base,
+          host: configService.get('DB_HOST', 'localhost'),
+          port: configService.get<number>('DB_PORT', 5432),
+          username: configService.get('DB_USERNAME', 'postgres'),
+          password: configService.get('DB_PASSWORD', ''),
+          database: configService.get('DB_NAME', 'laundry_ms'),
+          ssl: configService.get('DB_SSL') === 'true'
+            ? { rejectUnauthorized: false }
+            : false,
+        };
+      },
       inject: [ConfigService],
     }),
 
