@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 import { AuthModule } from './auth/auth.module';
 import { OrdersModule } from './orders/orders.module';
@@ -45,6 +48,7 @@ import { NotificationTemplate, NotificationLog } from './entities/notification.e
 import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.entity';
 
 @Module({
+  controllers: [AppController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
@@ -53,9 +57,9 @@ import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.ent
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => {
+      useFactory: (configService: ConfigService): TypeOrmModuleOptions => {
         const isProduction = configService.get('NODE_ENV') === 'production';
-        const databaseUrl = configService.get('DATABASE_URL');
+        const databaseUrl = configService.get<string>('DATABASE_URL');
 
         const base = {
           type: 'postgres' as const,
@@ -85,6 +89,12 @@ import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.ent
           },
         };
 
+        if (isProduction && !databaseUrl && !configService.get<string>('DB_HOST')) {
+          throw new Error(
+            'DATABASE_URL (or DB_HOST) is not set. Add it to the hosting provider\'s environment variables — .env files are not loaded in production.',
+          );
+        }
+
         if (databaseUrl) {
           return {
             ...base,
@@ -95,11 +105,11 @@ import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.ent
 
         return {
           ...base,
-          host: configService.get('DB_HOST', 'localhost'),
+          host: configService.get<string>('DB_HOST', 'localhost'),
           port: configService.get<number>('DB_PORT', 5432),
-          username: configService.get('DB_USERNAME', 'postgres'),
-          password: configService.get('DB_PASSWORD', ''),
-          database: configService.get('DB_NAME', 'laundry_ms'),
+          username: configService.get<string>('DB_USERNAME', 'postgres'),
+          password: configService.get<string>('DB_PASSWORD', ''),
+          database: configService.get<string>('DB_NAME', 'laundry_ms'),
           ssl: configService.get('DB_SSL') === 'true'
             ? { rejectUnauthorized: false }
             : false,
@@ -139,6 +149,7 @@ import { AttendanceRecord, Shift, LeaveRequest } from './entities/attendance.ent
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    AppService,
   ],
 })
 export class AppModule {}
