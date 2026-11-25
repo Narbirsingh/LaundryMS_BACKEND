@@ -5,11 +5,13 @@ import { Customer } from '../entities/customer.entity';
 import { CustomerType } from '../common/enums';
 import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateCustomerDto {
   @ApiProperty() @IsString() name: string;
   @ApiProperty() @IsString() mobile: string;
-  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  // Blank email from the form is treated as "no email" (null clears it on update)
+  @ApiPropertyOptional() @Transform(({ value }) => (typeof value === 'string' && value.trim() === '' ? null : value?.trim?.() ?? value)) @IsOptional() @IsEmail() email?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() city?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() state?: string;
