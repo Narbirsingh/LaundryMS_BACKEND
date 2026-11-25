@@ -8,6 +8,7 @@ import { Organization } from '../entities/organization.entity';
 import { User } from '../entities/user.entity';
 import { Branch } from '../entities/branch.entity';
 import { Order } from '../entities/order.entity';
+import { seedDefaultServices } from '../services/default-services';
 import { OrganizationStatus, SubscriptionPlan, UserRole } from '../common/enums';
 import {
   RegisterLaundryDto, EditLaundryDto, UpdateOrgStatusDto,
@@ -236,6 +237,7 @@ export class PlatformService implements OnApplicationBootstrap {
         isEmailVerified: true,
       });
       await qr.manager.save(user);
+      await seedDefaultServices(qr.manager, org.id, user.id);
       await qr.commitTransaction();
       return { organization: org, user: { id: user.id, email: user.email, role: user.role } };
     } catch (err) {

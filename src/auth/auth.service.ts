@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { User } from '../entities/user.entity';
 import { Organization } from '../entities/organization.entity';
 import { Branch } from '../entities/branch.entity';
+import { seedDefaultServices } from '../services/default-services';
 import { UserRole, OrganizationStatus } from '../common/enums';
 import {
   LoginDto,
@@ -77,6 +78,8 @@ export class AuthService {
         isEmailVerified: false,
       });
       await queryRunner.manager.save(user);
+
+      await seedDefaultServices(queryRunner.manager, org.id, user.id);
 
       await queryRunner.commitTransaction();
 
