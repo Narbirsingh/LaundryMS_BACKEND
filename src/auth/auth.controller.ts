@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, Req,
+  Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus, Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -77,5 +77,21 @@ export class AuthController {
   @ApiOperation({ summary: 'Reset password with token' })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('organization')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user organization settings' })
+  async getOrganization(@CurrentUser() user: any) {
+    return this.authService.getOrganizationSettings(user.organizationId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('organization')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update current user organization settings' })
+  async updateOrganization(@CurrentUser() user: any, @Body() dto: any) {
+    return this.authService.updateOrganizationSettings(user.organizationId, dto);
   }
 }

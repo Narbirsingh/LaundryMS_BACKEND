@@ -122,26 +122,29 @@ export class AuthService {
       );
     }
 
-    // Check organization status for non-SUPER_ADMIN users
-    if (user.role !== UserRole.SUPER_ADMIN && user.organizationId) {
-      const org = await this.orgRepository.findOne({ where: { id: user.organizationId } });
-      if (org) {
-        if (org.status === OrganizationStatus.BLOCKED) {
-          throw new UnauthorizedException('Your laundry account has been blocked. Please contact platform support.');
-        }
-        if (org.status === OrganizationStatus.SUSPENDED) {
-          throw new UnauthorizedException('Your laundry account has been suspended. Please contact platform support.');
-        }
-        if (org.status === OrganizationStatus.REJECTED) {
-          throw new UnauthorizedException('Your laundry registration was rejected. Please contact platform support.');
-        }
-        if (org.status === OrganizationStatus.INACTIVE) {
-          throw new UnauthorizedException('Your laundry account is inactive. Please contact platform support.');
-        }
+    // Run org check and password compare in parallel to save ~150ms
+    const [passwordValid, org] = await Promise.all([
+      bcrypt.compare(dto.password, user.passwordHash),
+      user.role !== UserRole.SUPER_ADMIN && user.organizationId
+        ? this.orgRepository.findOne({ where: { id: user.organizationId }, select: { id: true, status: true } as any })
+        : Promise.resolve(null),
+    ]);
+
+    if (org) {
+      if (org.status === OrganizationStatus.BLOCKED) {
+        throw new UnauthorizedException('Your laundry account has been blocked. Please contact platform support.');
+      }
+      if (org.status === OrganizationStatus.SUSPENDED) {
+        throw new UnauthorizedException('Your laundry account has been suspended. Please contact platform support.');
+      }
+      if (org.status === OrganizationStatus.REJECTED) {
+        throw new UnauthorizedException('Your laundry registration was rejected. Please contact platform support.');
+      }
+      if (org.status === OrganizationStatus.INACTIVE) {
+        throw new UnauthorizedException('Your laundry account is inactive. Please contact platform support.');
       }
     }
 
-    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) {
       await this.userRepository.increment({ id: user.id }, 'failedLoginAttempts', 1);
       const updated = await this.userRepository.findOne({ where: { id: user.id } });
@@ -160,16 +163,17 @@ export class AuthService {
       );
     }
 
-    await this.userRepository.update(user.id, {
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      lastLoginAt: new Date(),
-    });
-
+    // Generate tokens and hash refresh token in parallel with the first DB update
     const tokens = await this.generateTokens(user);
-    await this.userRepository.update(user.id, {
-      refreshToken: await bcrypt.hash(tokens.refreshToken, 10),
-    });
+    const [hashedRefreshToken] = await Promise.all([
+      bcrypt.hash(tokens.refreshToken, 10),
+      this.userRepository.update(user.id, {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        lastLoginAt: new Date(),
+      }),
+    ]);
+    await this.userRepository.update(user.id, { refreshToken: hashedRefreshToken });
 
     return {
       user: this.sanitizeUser(user),
@@ -284,6 +288,39 @@ export class AuthService {
     ]);
 
     return { accessToken, refreshToken };
+  }
+
+  async getOrganizationSettings(organizationId: string) {
+    if (!organizationId) throw new NotFoundException('No organization associated with this account');
+    const org = await this.orgRepository.findOne({ where: { id: organizationId } });
+    if (!org) throw new NotFoundException('Organization not found');
+    return org;
+  }
+
+  async updateOrganizationSettings(organizationId: string, dto: any) {
+    if (!organizationId) throw new NotFoundException('No organization associated with this account');
+    const orgFields = [
+      'businessName', 'ownerName', 'email', 'phone', 'alternatePhone',
+      'gstin', 'pan', 'address', 'city', 'state', 'country', 'pincode',
+      'timezone', 'currency', 'invoicePrefix', 'orderPrefix',
+    ];
+    const update: any = {};
+    for (const key of orgFields) {
+      if (dto[key] !== undefined) update[key] = dto[key];
+    }
+    if (dto.enablePickupDelivery !== undefined) update.pickupDeliveryAvailable = dto.enablePickupDelivery;
+    // Store billing/module settings in taxConfig jsonb
+    const taxConfigKeys = ['defaultGstRate', 'taxRegistered', 'expressMultiplier', 'enableCAModule'];
+    const taxConfigUpdate: Record<string, any> = {};
+    for (const key of taxConfigKeys) {
+      if (dto[key] !== undefined) taxConfigUpdate[key] = dto[key];
+    }
+    if (Object.keys(taxConfigUpdate).length > 0) {
+      const existing = await this.orgRepository.findOne({ where: { id: organizationId }, select: { taxConfig: true } as any });
+      update.taxConfig = { ...(existing?.taxConfig || {}), ...taxConfigUpdate };
+    }
+    await this.orgRepository.update(organizationId, update);
+    return this.orgRepository.findOne({ where: { id: organizationId } });
   }
 
   private sanitizeUser(user: User) {
